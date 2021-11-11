@@ -5,15 +5,16 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
-jobname=${1}
-startindex=${2:0}
+testgridcategory=${1}
+release=${2}
+jobname=${3}
+startindex=${4:0}
 # workdirprefix="/home/jchaloup/Projects/lab/watchers"
 workdirprefix="/run/media/jchaloup/5F9051C63D2DB782/Data"
 
 . $(dirname "$0")/lib.sh
 
-ids=$(jobname2testGridIDs ${jobname})
-release=$(jobname2release ${jobname})
+ids=$(curl https://testgrid.k8s.io/${testgridcategory}/table?tab=${jobname} | jq ".changelists[]" --raw-output)
 l=$(arraylen "${ids}")
 echo "Have $l job ids"
 #read -t 3 -n 1
@@ -54,7 +55,7 @@ spec:
           value: "${jobrelease}"
         - name: JOB_INDEX
           value: "${index}"
-        image: quay.io/jchaloup/ka-audit-miner:16
+        image: quay.io/jchaloup/ka-audit-miner:17
         command: ["/bin/bash", "-c"]
         args:
           - |
@@ -76,7 +77,7 @@ spec:
             fi
             . lib.sh
             export SCRIPT_DIR=/tmp
-            ${target_script} /tmp/Data ${jobname} ${jobid} ${index}
+            ${target_script} /tmp/Data ${jobname} ${jobid} ${jobrelease} ${index}
             cp /tmp/Data/${jobrelease}/${jobname}/${jobid}/${target_file} .
             tar -C /tmp/Data/${jobrelease}/${jobname}/${jobid}/ -czf /tmp/data.tar.gz ${target_file}
             oc delete -n miner configmap ${jobname}-${jobid} --ignore-not-found=true
