@@ -24,7 +24,7 @@ set output 'apirequestscount-%v-distribution.png'
 set xtics rotate
 set autoscale
 set ylabel "api watch requests distribution (sampling size=%v)"
-set title "watch requests %v"
+set title "WATCH requests %v"
 set grid
 set boxwidth 0.5
 set style fill solid
@@ -37,11 +37,84 @@ set xdata time
 set timefmt "%%Y%%m%%d%%H%%M%%S"
 set xtics rotate
 set autoscale
-set ylabel "api watch requests"
+set ylabel "api WATCH requests"
 set title "watch requests %v"
 set grid
 
 `
+
+const releaseGraphTemplate = `set terminal png size 2500, 1500
+set output 'kaaudit-%v-%v.png'
+set xdata time
+set timefmt "%%Y%%m%%d%%H%%M%%S"
+set xtics rotate
+set autoscale
+set ylabel "api WATCH requests"
+set title "watch requests %v (%v)"
+set key right bottom
+set key outside
+set rmargin 70
+set grid
+
+plot \
+`
+
+func releaseGraph(operator, suffix, title string, graphs []string) string {
+	return fmt.Sprintf(
+		releaseGraphTemplate,
+		operator,
+		suffix,
+		operator,
+		title,
+	) + strings.Join(graphs, ", \\\n") + "\n"
+}
+
+type filter func(string) bool
+
+func listJobsForRelease(dir string, fnc filter) ([]string, error) {
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	jobs := []string{}
+	for _, f := range files {
+		if strings.HasPrefix(f.Name(), "periodic") || strings.HasPrefix(f.Name(), "release") {
+			jobs = append(jobs, filepath.Join(dir, f.Name()))
+		}
+	}
+	return jobs, nil
+}
+
+func listKnownOperatorsForRelease(dir string, fnc filter) ([]string, error) {
+	jobs, err := listJobsForRelease(dir, fnc)
+	if err != nil {
+		return nil, err
+	}
+	operators := []string{}
+	operatorsMaps := map[string]struct{}{}
+	for _, job := range jobs {
+		if !fnc(job) {
+			continue
+		}
+		files, err := ioutil.ReadDir(job)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, f := range files {
+			if strings.HasPrefix(f.Name(), "kaaudit-") && strings.HasSuffix(f.Name(), ".g") {
+				operator := strings.TrimRight(strings.TrimLeft(f.Name(), "kaaudit-"), ".g")
+				operatorsMaps[operator] = struct{}{}
+			}
+		}
+
+	}
+	for operator := range operatorsMaps {
+		operators = append(operators, operator)
+	}
+	return operators, nil
+}
 
 func listJobIdDirsFromJobDir(dir string) ([]string, error) {
 	files, err := ioutil.ReadDir(dir)
@@ -434,9 +507,130 @@ type Command struct {
 	onlyAPIRequestsCount bool
 	// Process only ka-audit-logs.json files
 	onlyKAAudits bool
+	// Plot percentiles through all jobs in a given release
+	aggregateJobsInRelease bool
+}
+
+func myFilter(jobname string) bool {
+	return strings.Contains(jobname, "aws") && strings.Contains(jobname, "upgrade")
+	// return true
 }
 
 func (c *Command) Run() error {
+	if c.aggregateJobsInRelease {
+		operators, err := listKnownOperatorsForRelease(c.dataDir, myFilter)
+		if err != nil {
+			return err
+		}
+
+		variants := []struct {
+			filter func(string) bool
+			suffix string
+			title  string
+		}{
+			// {
+			// 	filter: func(jobname string) bool {
+			// 		return strings.Contains(jobname, "aws") && strings.Contains(jobname, "upgrade")
+			// 	},
+			// 	suffix: "4.10-aws-upgrade",
+			// 	title:  "60 minute sequence max 50-th percentile growing aws upgrade",
+			// },
+			// {
+			// 	filter: func(jobname string) bool {
+			// 		return strings.Contains(jobname, "aws") && !strings.Contains(jobname, "upgrade")
+			// 	},
+			// 	suffix: "4.10-aws",
+			// 	title:  "60 minute sequence max 50-th percentile growing aws",
+			// },
+			{
+				filter: func(jobname string) bool {
+					return strings.Contains(jobname, "aws")
+				},
+				suffix: "4.10-aws-all",
+				title:  "60 minute sequence max 50-th percentile growing aws all",
+			},
+			{
+				filter: func(jobname string) bool {
+					return strings.Contains(jobname, "azure")
+				},
+				suffix: "4.10-azure-all",
+				title:  "60 minute sequence max 50-th percentile growing azure all",
+			},
+			{
+				filter: func(jobname string) bool {
+					return strings.Contains(jobname, "gcp")
+				},
+				suffix: "4.10-gcp-all",
+				title:  "60 minute sequence max 50-th percentile growing gcp all",
+			},
+			{
+				filter: func(jobname string) bool {
+					return strings.Contains(jobname, "vsphere")
+				},
+				suffix: "4.10-vsphere-all",
+				title:  "60 minute sequence max 50-th percentile growing vsphere all",
+			},
+			{
+				filter: func(jobname string) bool {
+					return strings.Contains(jobname, "openstack")
+				},
+				suffix: "4.10-openstack-all",
+				title:  "60 minute sequence max 50-th percentile growing openstack all",
+			},
+			{
+				filter: func(jobname string) bool {
+					return strings.Contains(jobname, "metal")
+				},
+				suffix: "4.10-metal-all",
+				title:  "60 minute sequence max 50-th percentile growing metal all",
+			},
+			{
+				filter: func(jobname string) bool {
+					return strings.Contains(jobname, "upgrade")
+				},
+				suffix: "4.10-upgrade-all",
+				title:  "60 minute sequence max 50-th percentile growing upgrade all",
+			},
+		}
+
+		for _, variant := range variants {
+			fmt.Printf("Processing %q variant\n", variant.title)
+			for _, operator := range operators {
+				graphs := []string{}
+				jobs, err := listJobsForRelease(c.dataDir, variant.filter)
+				if err != nil {
+					return err
+				}
+				for _, job := range jobs {
+					if !variant.filter(job) {
+						continue
+					}
+					dataFilePath := filepath.Join(job, fmt.Sprintf("kaaudit-%v-max-60minute-sequence-50-percentile-growing.dat", operator))
+					if _, err := os.Stat(dataFilePath); errors.Is(err, os.ErrNotExist) {
+						continue
+					}
+					graphs = append(graphs, fmt.Sprintf("\"%v\" using 1:2 title \"%v\" with linespoints", dataFilePath, filepath.Base(job)))
+				}
+
+				if len(graphs) == 0 {
+					continue
+				}
+				graphfile := filepath.Join(c.dataDir, fmt.Sprintf("kaaudit-%v-max-60minute-sequence-50-percentile-growing-%v.g", operator, variant.suffix))
+				f, err := os.Create(graphfile)
+				if err != nil {
+					return fmt.Errorf("unable to create %v: %v", graphfile, err)
+				}
+				defer f.Close()
+				f.WriteString(releaseGraph(
+					operator,
+					variant.suffix,
+					variant.title,
+					graphs,
+				))
+			}
+		}
+		return nil
+	}
 	if c.onlyAPIRequestsCount {
 		plotApiRequestsCount(c.dataDir)
 	} else if c.onlyKAAudits {
@@ -466,6 +660,7 @@ func main() {
 	flags.StringVar(&command.dataDir, "datadir", command.dataDir, "Path to job with extracted artifacts")
 	flags.BoolVar(&command.onlyAPIRequestsCount, "only-apirequestscount", command.onlyAPIRequestsCount, "Process only requests.json files")
 	flags.BoolVar(&command.onlyKAAudits, "only-kaauditlogs", command.onlyKAAudits, "Process only ka-audit-logs.json files")
+	flags.BoolVar(&command.aggregateJobsInRelease, "aggregate-jobs-in-release", command.aggregateJobsInRelease, "Plot percentiles through all jobs in a given release")
 
 	if err := cmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
