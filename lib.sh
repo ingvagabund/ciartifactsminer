@@ -1,13 +1,5 @@
 #!/bin/sh
 
-getKAAuditTarballPath() {
-  jobname=${1}
-  id=${2}
-  destination=${3}
-  audit_tarball=$(gsutil ls gs://origin-ci-test/logs/${jobname}/${id}/**/audit-logs.tar)
-  gsutil cp ${audit_tarball} ${destination}
-}
-
 arraylen() {
   array=${1}
   l=0
@@ -114,6 +106,48 @@ processKAAudit() {
   cat ${target_dir}/${kubeapiserverauditlogsdir}/*.log | python ${script_dir}/process-kube-apiserver-audit-logs-watch-requests.py > ${target_dir}/ka-audit-logs.json
   rm -rf ${target_dir}/${kubeapiserverauditlogsdir}
   echo "Data extraction finished (${index}, $(date))"
+
+  end_time=$(date +%s)
+  elapsed=$(( end_time - start_time ))
+  eval "echo Elapsed time: $(date -ud "@$elapsed" +'$((%s/3600/24)) days %H hr %M min %S sec')"
+}
+
+processOpenshifte2eTest() {
+  basedir=${1}
+  release=${2}
+  jobname=${3}
+  id=${4}
+  index=${5}
+
+  workdir="${basedir}/${release}/${jobname}"
+  target_dir=${basedir}/${release}/${jobname}/${id}
+  script_dir=${SCRIPT_DIR:-$(dirname "$0")}
+
+  mkdir -p ${target_dir}
+  # skip the extraction if the audit logs were already collected
+  if [ -f ${target_dir}/openshift-e2e-tests.json ]; then
+    echo "${target_dir}/openshift-e2e-tests.json already exists"
+    return
+  fi
+
+  start_time=$(date +%s)
+  if [ ! -f "${target_dir}/build-log.txt" ]; then
+    echo "Pulling openshift-e2e-test/build-log.txt (${index}, $(date))"
+    buildlog=$(gsutil ls gs://origin-ci-test/logs/${jobname}/${id}/**/openshift-e2e-test/build-log.txt)
+    if [ -z "${buildlog}" ]; then
+      return
+    fi
+    gsutil cp ${buildlog} ${target_dir}/build-log.txt
+  fi
+  if [ ! -f "${target_dir}/build-log.txt" ]; then
+    echo "Failed to pull openshift-e2e-test/build-log.txt (${index}, $(date))"
+    return
+  fi
+
+  testsTotal=$(cat ${target_dir}/build-log.txt | grep "^started:" | cut -d' ' -f2 | head -1 | cut -d'/' -f3 | tr -d ')')
+  if [ -n "${testsTotal}" ]; then
+    echo "{\"total\": \"${testsTotal}\"}" > ${target_dir}/openshift-e2e-tests.json
+  fi
 
   end_time=$(date +%s)
   elapsed=$(( end_time - start_time ))

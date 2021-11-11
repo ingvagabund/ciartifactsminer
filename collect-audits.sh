@@ -26,7 +26,7 @@ createPodFromTemplate() {
   index=${4}
   target_script=${5}
   target_file=${6}
-  target_archive=${7}
+  target_resource=${7}
   memory_request=${8}
   cpu_request=${9}
   podname_infix=${10}
@@ -55,11 +55,11 @@ spec:
           value: "${jobrelease}"
         - name: JOB_INDEX
           value: "${index}"
-        image: quay.io/jchaloup/ka-audit-miner:17
-        command: ["/bin/bash", "-c"]
+        image: quay.io/jchaloup/ka-audit-miner:18
+        command: ["/bin/bash", "-cx"]
         args:
           - |
-            if [ \$(gsutil ls gs://origin-ci-test/logs/${jobname}/${jobid}/**/${target_archive} 2>/dev/null | wc -l) -eq 0 ]; then
+            if [ \$(gsutil ls gs://origin-ci-test/logs/${jobname}/${jobid}/**/${target_resource} 2>/dev/null | wc -l) -eq 0 ]; then
               # Check if the job has finished.json
               if [ \$(gsutil ls gs://origin-ci-test/logs/${jobname}/${jobid}/finished.json 2>/dev/null | wc -l) -eq 0 ]; then
                 # The job has not finished, do nothing
@@ -69,7 +69,7 @@ spec:
               # Make sure the file is almost empty so the check for 0 size file skips really
               # only jobs which have not been processed yet. The code responsible for processing
               # json files will "just" skip this file.
-              echo "gs://origin-ci-test/logs/${jobname}/${jobid}/**/${target_archive} missing" > /tmp/empty
+              echo "gs://origin-ci-test/logs/${jobname}/${jobid}/**/${target_resource} missing" > /tmp/empty
               tar -C /tmp -czf /tmp/data.tar.gz /tmp/empty
               oc create -n miner configmap ${jobname}-${jobid} --from-file=/tmp/data.tar.gz
               oc label -n miner configmap ${jobname}-${jobid} app=miner
@@ -77,7 +77,7 @@ spec:
             fi
             . lib.sh
             export SCRIPT_DIR=/tmp
-            ${target_script} /tmp/Data ${jobname} ${jobid} ${jobrelease} ${index}
+            ${target_script} /tmp/Data ${jobrelease} ${jobname} ${jobid} ${index}
             cp /tmp/Data/${jobrelease}/${jobname}/${jobid}/${target_file} .
             tar -C /tmp/Data/${jobrelease}/${jobname}/${jobid}/ -czf /tmp/data.tar.gz ${target_file}
             oc delete -n miner configmap ${jobname}-${jobid} --ignore-not-found=true
@@ -126,6 +126,11 @@ waitForJobsToComplete() {
       sleep 5s
       continue
     fi
+    # In case there's no job, just repeat (in case the connection dropped and still rc is 0)
+    if [ "${total_jobs}" -eq 0 ]; then
+      sleep 5s
+      continue
+    fi
     # If the oc fails, failed/succeed will be 0 in the worst case
     failed=$(oc get jobs -n miner -o json | jq '.items[].status.failed' --raw-output | grep -v "null" | wc -l)
     succeed=$(oc get jobs -n miner -o json | jq '.items[].status.succeeded' --raw-output | grep -v "null" | wc -l)
@@ -138,7 +143,7 @@ waitForJobsToComplete() {
       succeed=$(oc get jobs -n miner -o json | jq '.items[].status.succeeded' --raw-output | grep -v "null" | wc -l)
       total=$(( $failed + $succeed ))
       new_total_jobs=$(oc get jobs -n miner --selector=app=miner -o json | jq ".items[].metadata.name" | sort -u | wc -l)
-      if [ -n ${new_total_jobs} ]; then
+      if [ "${new_total_jobs}" -ne 0 ]; then
         total_jobs="${new_total_jobs}"
       fi
     done
@@ -164,6 +169,11 @@ retrieveDataFromCMs() {
       sleep 5s
       continue
     fi
+    # In case there's no CM, just repeat (in case the connection dropped and still rc is 0)
+    if [ -z "${cms}" ]; then
+      sleep 5s
+      continue
+    fi
     for cm in ${cms}; do
       jobid=$(echo "${cm}" | rev | cut -d'-' -f1 | rev)
       cm2file ${target_dir}/${jobid} ${cm} ${target_file} &
@@ -178,24 +188,36 @@ retrieveDataFromCMs() {
   oc delete cm -n miner --selector=app=miner
 }
 
-for method in "KAAudit" "mustGather"; do
+for method in "openshiftTests"; do # "KAAudit" "mustGather"; do
   target_file="ka-audit-logs.json"
   target_miner="processKAAudit"
-  target_archive="audit-logs.tar"
+  target_resource="audit-logs.tar"
   memory_request="1825361100"
   cpu_request="250m"
   podname_infix="kaaudit"
   batchsize=120
-  if [ "${method}" = "mustGather" ]; then
-    target_file="requests.json"
-    target_miner="processMustGather"
-    target_archive="must-gather.tar"
-    # Based on monitoring sum(container_memory_usage_bytes{namespace='miner',container='',}) BY (pod, namespace)
-    memory_request="209715200"
-    cpu_request="250m"
-    podname_infix="must-gather"
-    batchsize=200
-  fi
+  case ${method} in
+    mustGather)
+      target_file="requests.json"
+      target_miner="processMustGather"
+      target_resource="must-gather.tar"
+      # Based on monitoring sum(container_memory_usage_bytes{namespace='miner',container='',}) BY (pod, namespace)
+      memory_request="209715200"
+      cpu_request="250m"
+      podname_infix="must-gather"
+      batchsize=200
+      ;;
+    openshiftTests)
+      target_file="openshift-e2e-tests.json"
+      target_miner="processOpenshifte2eTest"
+      target_resource="openshift-e2e-test/build-log.txt"
+      # Based on monitoring sum(container_memory_usage_bytes{namespace='miner',container='',}) BY (pod, namespace)
+      memory_request="146800640"
+      cpu_request="100m"
+      podname_infix="openshift-tests"
+      batchsize=500
+      ;;
+  esac
 
   i=0
   j=0
@@ -222,14 +244,14 @@ for method in "KAAudit" "mustGather"; do
       i=$(($i + 1))
       echo "Processing ${jobname}/${id} $i/$j/$l $(date)"
       if [ -z "${DRY_RUN:-}" ]; then
-        createPodFromTemplate "${jobname}" "${id}" "${release}" "${j}" "${target_miner}" "${target_file}" "${target_archive}" "${memory_request}" "${cpu_request}" "${podname_infix}" &
+        createPodFromTemplate "${jobname}" "${id}" "${release}" "${j}" "${target_miner}" "${target_file}" "${target_resource}" "${memory_request}" "${cpu_request}" "${podname_infix}" &
       fi
     else
       j=$(($j + 1))
       i=$(($i + 1))
       echo "Processing ${jobname}/${id} $i/$j/$l $(date)"
       if [ -z "${DRY_RUN:-}" ]; then
-        createPodFromTemplate "${jobname}" "${id}" "${release}" "${j}" "${target_miner}" "${target_file}" "${target_archive}" "${memory_request}" "${cpu_request}" "${podname_infix}" &
+        createPodFromTemplate "${jobname}" "${id}" "${release}" "${j}" "${target_miner}" "${target_file}" "${target_resource}" "${memory_request}" "${cpu_request}" "${podname_infix}" &
         wait
         waitForJobsToComplete
         retrieveDataFromCMs "${workdirprefix}/${release}/${jobname}" "${target_file}" "${podname_infix}"
