@@ -137,7 +137,12 @@ processOpenshifte2eTest() {
     if [ -z "${buildlog}" ]; then
       return
     fi
+    finishedlog=$(gsutil ls gs://origin-ci-test/logs/${jobname}/${id}/**/openshift-e2e-test/finished.json)
+    if [ -z "${finishedlog}" ]; then
+      return
+    fi
     gsutil cp ${buildlog} ${target_dir}/build-log.txt
+    gsutil cp ${finishedlog} ${target_dir}/finished.json
   fi
   if [ ! -f "${target_dir}/build-log.txt" ]; then
     echo "Failed to pull openshift-e2e-test/build-log.txt (${index}, $(date))"
@@ -146,7 +151,7 @@ processOpenshifte2eTest() {
 
   testsTotal=$(cat ${target_dir}/build-log.txt | grep "^started:" | cut -d' ' -f2 | head -1 | cut -d'/' -f3 | tr -d ')')
   if [ -n "${testsTotal}" ]; then
-    echo "{\"total\": \"${testsTotal}\"}" > ${target_dir}/openshift-e2e-tests.json
+    cat ${target_dir}/finished.json | jq ". + {\"total\": ${testsTotal}}" > ${target_dir}/openshift-e2e-tests.json
   fi
 
   end_time=$(date +%s)

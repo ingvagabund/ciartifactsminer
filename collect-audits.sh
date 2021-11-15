@@ -31,7 +31,7 @@ createPodFromTemplate() {
   cpu_request=${9}
   podname_infix=${10}
   oc delete -n miner job miner-${podname_infix}-${jobid} --ignore-not-found=true
-  for idx in $(seq 1 10); do
+  for idx in $(seq 1 20); do
     echo "Creating job ${jobname}/${jobid}, ${idx}-th attempt"
     oc apply -f - << EOF
 apiVersion: batch/v1
@@ -55,7 +55,7 @@ spec:
           value: "${jobrelease}"
         - name: JOB_INDEX
           value: "${index}"
-        image: quay.io/jchaloup/ka-audit-miner:18
+        image: quay.io/jchaloup/ka-audit-miner:20
         command: ["/bin/bash", "-cx"]
         args:
           - |
@@ -94,7 +94,7 @@ EOF
     if [ ${ec} -eq 0 ]; then
       break
     fi
-    sleep 5s
+    sleep 10s
   done
 }
 
@@ -104,7 +104,7 @@ cm2file() {
   target_file=${3}
 
   mkdir -p ${target_dir}
-  for idx in $(seq 1 10); do
+  for idx in $(seq 1 20); do
     echo "Pulling ${cm}, ${idx}-th attempt"
     oc get cm -n miner ${cm} -o json | jq '.binaryData["data.tar.gz"]' --raw-output | base64 --decode | tar -zxf - -O > ${target_dir}/${target_file}
     ec=$?
@@ -112,23 +112,23 @@ cm2file() {
       oc delete --force=true cm -n miner ${cm} &
       break
     fi
-    sleep 5s
+    sleep 10s
   done
   echo "Data stored under ${target_dir}/${target_file} (size $(ls -sh ${target_dir}/${target_file} | cut -d' ' -f1))"
 }
 
 waitForJobsToComplete() {
   start_time=$(date +%s)
-  for idx in $(seq 1 10); do
+  for idx in $(seq 1 20); do
     echo "Pulling jobs, ${idx}-th attempt"
     total_jobs=$(oc get jobs -n miner --selector=app=miner -o json | jq ".items[].metadata.name" | sort -u | wc -l)
     if [ ${?} -ne 0 ]; then
-      sleep 5s
+      sleep 3s
       continue
     fi
     # In case there's no job, just repeat (in case the connection dropped and still rc is 0)
     if [ "${total_jobs}" -eq 0 ]; then
-      sleep 5s
+      sleep 10s
       continue
     fi
     # If the oc fails, failed/succeed will be 0 in the worst case
@@ -138,7 +138,7 @@ waitForJobsToComplete() {
 
     while [ ${total} -lt ${total_jobs} ]; do
       echo "Waiting for jobs to finish ($total/${total_jobs})"
-      sleep 5s
+      sleep 3s
       failed=$(oc get jobs -n miner -o json | jq '.items[].status.failed' --raw-output | grep -v "null" | wc -l)
       succeed=$(oc get jobs -n miner -o json | jq '.items[].status.succeeded' --raw-output | grep -v "null" | wc -l)
       total=$(( $failed + $succeed ))
@@ -162,16 +162,16 @@ retrieveDataFromCMs() {
   # Dump the jobs to see if thereis' OOM kill
   oc get jobs -n miner --selector=app=miner
   oc get pods -n miner --no-headers | sed 's/ [ ]*/ /g' | cut -d' ' -f3 | sort | uniq -c
-  for idx in $(seq 1 10); do
+  for idx in $(seq 1 20); do
     echo "Retriving data from the configmaps, attemp ${idx}"
     cms=$(oc get cm -n miner --selector=app=miner -o json | jq ".items[].metadata.name" --raw-output)
     if [ "${?}" -ne 0 ]; then
-      sleep 5s
+      sleep 10s
       continue
     fi
     # In case there's no CM, just repeat (in case the connection dropped and still rc is 0)
     if [ -z "${cms}" ]; then
-      sleep 5s
+      sleep 10s
       continue
     fi
     for cm in ${cms}; do
@@ -188,7 +188,8 @@ retrieveDataFromCMs() {
   oc delete cm -n miner --selector=app=miner
 }
 
-for method in "openshiftTests"; do # "KAAudit" "mustGather"; do
+for method in "KAAudit" "mustGather"; do # "openshiftTests"
+  # 80 worker nodes assumed
   target_file="ka-audit-logs.json"
   target_miner="processKAAudit"
   target_resource="audit-logs.tar"
@@ -234,7 +235,7 @@ for method in "openshiftTests"; do # "KAAudit" "mustGather"; do
     if [ -f "${file}" ]; then
       filesize=$(stat --printf="%s" ${file})
       if [ ${filesize} -ne 0 ]; then
-        # echo "${file} exists (${filesize}B), skipping $i/$j/$l"
+        echo "${file} exists (${filesize}B), skipping $i/$j/$l"
         j=$(($j + 1))
         continue
       fi
@@ -259,6 +260,9 @@ for method in "openshiftTests"; do # "KAAudit" "mustGather"; do
       i=0
     fi
   done
+  if [ "${i}" -eq 0 ]; then
+    continue
+  fi
   if [ -z "${DRY_RUN:-}" ]; then
     wait
     waitForJobsToComplete

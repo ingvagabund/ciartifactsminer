@@ -180,6 +180,14 @@ type AuditLog struct {
 	ResponseStatus           ResponseStatus `json:"responseStatus"`
 }
 
+type OpenshiftE2ETest struct {
+	Total     int    `json:"total"`
+	Timestamp int    `json:"timestamp"`
+	Passed    bool   `json:"passed"`
+	Result    string `json:"result"`
+	Reivsion  string `json:"revision"`
+}
+
 func data2datFile(data map[int]int, targetFile string) error {
 	keys := make([]int, 0, len(data))
 	for k := range data {
@@ -297,10 +305,6 @@ func plotApiRequestsCount(dir string) error {
 		if err := func() error {
 			graphs := []string{}
 			graphs = append(graphs, fmt.Sprintf("\"%v\" using 1:2 title \"apirequestscount distribution size=%v\" with boxes", filepath.Join(dir, fmt.Sprintf("kaapirequestcounts-%v-max-distribution.dat", operator)), sampling))
-			// graphs.append("\"{}\" using 1:2 title \"apirequestscount distribution size={}\" with boxes".format(join(self.jobpath, "kaapirequestcounts-{}-max-distribution.dat".format(operator)), str(sampling)))
-			// f = open(join(self.jobpath, "apirequestscount-{}-distribution.g".format(operator)), "w")
-			// f.write(graph.format(operator, sampling, operator) + "plot {}".format(", \\\n".join(graphs)))
-			// f.close()
 			graphfile := filepath.Join(dir, fmt.Sprintf("apirequestscount-%v-distribution.g", operator))
 			f, err := os.Create(graphfile)
 			if err != nil {
@@ -323,6 +327,79 @@ func plotApiRequestsCount(dir string) error {
 		}
 		return fmt.Errorf("%v", strings.Join(errStr, ";"))
 	}
+
+	return nil
+}
+
+func plotOpenshiftE2ETests(dir string) error {
+	files, err := listFilesForJobIDs(dir, "openshift-e2e-tests.json")
+	if err != nil {
+		return err
+	}
+	fileslen := len(files)
+	testsTotal := map[int]int{}
+
+	var errs []error
+	for idx, file := range files {
+		fmt.Printf("Processing %v (%v/%v)\n", file, idx+1, fileslen)
+		// check the file is a JSON file, otherwise ignore
+		if err := func() error {
+			jsonFile, err := os.Open(file)
+			if err != nil {
+				return fmt.Errorf("unable to open %v: %v", file, err)
+			}
+			defer jsonFile.Close()
+			byteValue, err := ioutil.ReadAll(jsonFile)
+			if err != nil {
+				return fmt.Errorf("unable to read %v: %v", file, err)
+			}
+
+			var result OpenshiftE2ETest
+			if err := json.Unmarshal([]byte(byteValue), &result); err != nil {
+				return fmt.Errorf("unable to unmarshal %v: %v", file, err)
+			}
+
+			// TODO(jchaloup): extract the timestamp into openshift-e2e-tests.json as well
+			// meantime, use requests.json
+			requestsFile := filepath.Join(filepath.Dir(file), "requests.json")
+			if _, err := os.Stat(requestsFile); errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			jsonFile, err = os.Open(requestsFile)
+			if err != nil {
+				return fmt.Errorf("unable to open %v: %v", file, err)
+			}
+			defer jsonFile.Close()
+			byteValue, err = ioutil.ReadAll(jsonFile)
+			if err != nil {
+				return fmt.Errorf("unable to read %v: %v", file, err)
+			}
+
+			var resultRequests Requests
+			if err := json.Unmarshal([]byte(byteValue), &resultRequests); err != nil {
+				return fmt.Errorf("unable to unmarshal %v: %v", file, err)
+			}
+
+			// Check if the requets are empty
+			if resultRequests.CreationTimestamp == 0 {
+				return fmt.Errorf("empty creationTimestamp %v, skipping", file)
+			}
+
+			fmt.Printf("%v: %v\n", resultRequests.CreationTimestamp, result.Total)
+			testsTotal[resultRequests.CreationTimestamp] = result.Total
+
+			return nil
+		}(); err != nil {
+			fmt.Printf("err: %v\n", err)
+			errs = append(errs, err)
+			continue
+		}
+		// if idx > 5 {
+		// 	break
+		// }
+	}
+
+	data2datFile(testsTotal, filepath.Join(dir, "teststotal.dat"))
 
 	return nil
 }
@@ -474,6 +551,10 @@ func plotKAAuditRequests(dir string) error {
 				graphs = append(graphs, fmt.Sprintf("\"%v\" using 1:2 title \"60 minute sequence max %v-p growing\" with linespoints", filepath.Join(dir, fmt.Sprintf("kaaudit-%v-max-60minute-sequence-%v-percentile-growing.dat", operator, percentile)), percentile))
 			}
 			graphs = append(graphs, fmt.Sprintf("\"%v\" using 1:2 title \"apirequestcounts CR hours max\" with linespoints", filepath.Join(dir, fmt.Sprintf("kaapirequestcounts-%v-max.dat", operator))))
+			teststotalFile := filepath.Join(dir, "teststotal.dat")
+			if _, err := os.Stat(teststotalFile); !errors.Is(err, os.ErrNotExist) {
+				graphs = append(graphs, fmt.Sprintf("\"%v\" using 1:2 title \"tests total\" with linespoints", teststotalFile))
+			}
 
 			graphfile := filepath.Join(dir, fmt.Sprintf("kaaudit-%v.g", operator))
 			f, err := os.Create(graphfile)
@@ -507,6 +588,8 @@ type Command struct {
 	onlyAPIRequestsCount bool
 	// Process only ka-audit-logs.json files
 	onlyKAAudits bool
+	// Process only openshift-e2e-tests.json files
+	onlyOpenshiftTests bool
 	// Plot percentiles through all jobs in a given release
 	aggregateJobsInRelease bool
 }
@@ -635,6 +718,8 @@ func (c *Command) Run() error {
 		plotApiRequestsCount(c.dataDir)
 	} else if c.onlyKAAudits {
 		plotKAAuditRequests(c.dataDir)
+	} else if c.onlyOpenshiftTests {
+		plotOpenshiftE2ETests(c.dataDir)
 	} else {
 		plotApiRequestsCount(c.dataDir)
 		plotKAAuditRequests(c.dataDir)
@@ -660,6 +745,7 @@ func main() {
 	flags.StringVar(&command.dataDir, "datadir", command.dataDir, "Path to job with extracted artifacts")
 	flags.BoolVar(&command.onlyAPIRequestsCount, "only-apirequestscount", command.onlyAPIRequestsCount, "Process only requests.json files")
 	flags.BoolVar(&command.onlyKAAudits, "only-kaauditlogs", command.onlyKAAudits, "Process only ka-audit-logs.json files")
+	flags.BoolVar(&command.onlyOpenshiftTests, "only-openshift-tests", command.onlyOpenshiftTests, "Process only openshift-e2e-tests.json files")
 	flags.BoolVar(&command.aggregateJobsInRelease, "aggregate-jobs-in-release", command.aggregateJobsInRelease, "Plot percentiles through all jobs in a given release")
 
 	if err := cmd.Execute(); err != nil {
