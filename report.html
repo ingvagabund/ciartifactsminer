@@ -1,0 +1,322 @@
+<html>
+<head>
+  <title>4.10 report</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.4.0/Chart.bundle.js"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
+  <script type="text/javascript">
+    var data = {
+      datasets: [],
+    }
+
+    var myChart = null
+    var dataCache = new Map()
+
+    function loadChart() {
+      myChart = new Chart("myChart", {
+      type: "line",
+      data: data,
+      options: {
+        scales: {
+          xAxes: [{
+            type:'time',
+            distribution:'series',
+            time:{format:'YYYYMMDDHHmmss',unit:'day'},
+            scaleLabel:{display:true,labelString:'Date'}
+          }],
+          yAxes: [{
+            scaleLabel: {display: true, labelString: 'watch API requests'}
+          }]
+        },
+        responsive:true,
+        maintainAspectRatio:false,
+        legend:{position:'top'},
+        title:{display:true,text:'watch API requests'}
+      },
+    });
+    }
+
+    function getDataUrl(job, operator, percentile) {
+      return "https://jchaloup.fedorapeople.org/data/4.10/"+job+"/kaaudit-"+operator+"-operator-max-60minute-sequence-"+percentile+"-percentile-growing.json"
+    }
+
+    function random(min, max) {
+      return Math.floor(Math.random() * (max - min)) + min
+    }
+    const percentiles = ["50", "60", "70", "80", "90", "95", "99"];
+    const operators = [
+      "authentication",
+      "aws-ebs-csi-driver",
+      "cloud-credential",
+      "cluster-autoscaler",
+      "cluster-baremetal",
+      "cluster-image-registry",
+      "cluster-monitoring",
+      "cluster-node-tuning",
+      "cluster-samples",
+      "cluster-storage",
+      "console",
+      "csi-snapshot-controller",
+      "dns",
+      "etcd",
+      "ingress",
+      "kube-apiserver",
+      "kube-controller-manager",
+      "kube-storage-version-migrator",
+      "machine-api",
+      "marketplace",
+      "openshift-apiserver",
+      "openshift-config",
+      "openshift-controller-manager",
+      "openshift-kube-scheduler",
+      "prometheus",
+      "service-ca",
+    ];
+    const jobs = [
+      "periodic-ci-openshift-multiarch-master-nightly-4.10-ocp-e2e-aws-arm64",
+      "periodic-ci-openshift-multiarch-master-nightly-4.10-ocp-e2e-serial-aws-arm64",
+      "periodic-ci-openshift-multiarch-master-nightly-4.10-ocp-image-ecosystem-aws-arm64",
+      "periodic-ci-openshift-multiarch-master-nightly-4.10-ocp-installer-e2e-aws-arm64",
+      "periodic-ci-openshift-multiarch-master-nightly-4.10-ocp-installer-e2e-aws-ovn-arm64",
+      "periodic-ci-openshift-multiarch-master-nightly-4.10-upgrade-from-nightly-4.9-ocp-e2e-aws-arm64",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-cgroupsv2",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-network-stress",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-ovn",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-ovn-network-stress",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-ovn-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-sdn-multitenant",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-techpreview",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-techpreview-serial",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-upgrade-rollback",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-aws-upgrade-single-node",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-azure",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-azure-cilium",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-azure-ovn",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-azure-ovn-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-azure-serial",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-azure-techpreview",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-azure-techpreview-serial",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-azure-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-azure-upgrade-single-node",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-gcp",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-gcp-ovn",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-gcp-serial",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-gcp-techpreview",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-gcp-techpreview-serial",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-gcp-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-network-migration",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-network-migration-rollback",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-openstack-kuryr",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-openstack-ovn",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-openstack-parallel",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-openstack-serial",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-openstack-techpreview-parallel",
+      "periodic-ci-openshift-release-master-ci-4.10-e2e-openstack-techpreview-serial",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-aws-ovn-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-aws-ovn-upgrade-rollback",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-aws-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-aws-upgrade-rollback",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-aws-upgrade-workload",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-aws-uwm",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-azure-ovn-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-azure-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-gcp-ovn-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-gcp-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-openstack-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-ovirt-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-vsphere-upgrade",
+      "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-from-stable-4.8-e2e-aws-upgrade",
+      "periodic-ci-openshift-release-master-nightly-4.10-console-aws",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-canary",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-cgroupsv2",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-fips",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-fips-serial",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-ovn-local-gateway",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-proxy",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-single-node",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-single-node-serial",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-upgrade",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-workers-rhel7",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-workers-rhel8",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-azure",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-azure-deploy-cnv",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-azure-fips",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-azure-fips-serial",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-azurestack-csi",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-azure-upgrade-cnv",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-gcp",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-gcp-fips",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-gcp-fips-serial",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-gcp-rt",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-metal-ipi-compact",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-metal-ipi-ovn-dualstack",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-metal-ipi-ovn-dualstack-local-gateway",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-metal-ipi-ovn-ipv6",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-metal-ipi-upgrade",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-metal-ipi-virtualmedia",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-openstack-az",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-openstack-csi-manila",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-openstack-fips",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-openstack-proxy",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-ovirt",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-ovirt-ovn",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-vsphere",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-vsphere-ovn",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-vsphere-proxy",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-vsphere-serial",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-vsphere-upi",
+      "periodic-ci-openshift-release-master-nightly-4.10-e2e-vsphere-upi-serial",
+      "periodic-ci-openshift-release-master-nightly-4.10-upgrade-from-stable-4.8-e2e-aws-upgrade-paused",
+      "periodic-ci-openshift-release-master-nightly-4.10-upgrade-from-stable-4.9-e2e-aws-upgrade",
+      "periodic-ci-openshift-release-master-nightly-4.10-upgrade-from-stable-4.9-e2e-metal-ipi-upgrade",
+      "periodic-ci-openshift-verification-tests-master-ocp-4.10-e2e-aws-cucushift-ipi",
+      "periodic-ci-openshift-verification-tests-master-ocp-4.10-e2e-baremetal-cucushift-ipi",
+      "periodic-ci-openshift-verification-tests-master-ocp-4.10-e2e-gcp-cucushift-ipi",
+      "periodic-ci-openshift-verification-tests-master-ocp-4.10-e2e-gcp-cucushift-upi",
+      "periodic-ci-openshift-verification-tests-master-ocp-4.10-e2e-openstack-cucushift-ipi",
+      "periodic-ci-openshift-verification-tests-master-ocp-4.10-e2e-openstack-cucushift-upi",
+      "periodic-ci-openshift-verification-tests-master-ocp-4.10-e2e-vsphere-cucushift-ipi",
+      "promote-release-openshift-machine-os-content-e2e-aws-4.10",
+      "release-openshift-ocp-installer-e2e-aws-csi-4.10",
+      "release-openshift-ocp-installer-e2e-aws-mirrors-4.10",
+      "release-openshift-ocp-installer-e2e-aws-upi-4.10",
+      "release-openshift-ocp-installer-e2e-azure-serial-4.10",
+      "release-openshift-ocp-installer-e2e-gcp-serial-4.10",
+      "release-openshift-ocp-installer-e2e-metal-4.10",
+      "release-openshift-ocp-installer-e2e-metal-compact-4.10",
+      "release-openshift-ocp-installer-e2e-metal-serial-4.10",
+      "release-openshift-origin-installer-e2e-aws-disruptive-4.10",
+      "release-openshift-origin-installer-e2e-aws-shared-vpc-4.10",
+      "release-openshift-origin-installer-e2e-azure-shared-vpc-4.10",
+      "release-openshift-origin-installer-e2e-gcp-shared-vpc-4.10",
+    ];
+
+    function drawCheckBoxes() {
+      percentiles.forEach(function(percentile) {
+        $("ul#percentiles").append("<li><input type=\"checkbox\" id=\"percentile"+percentile+"\" onclick=\"updateChart()\" />" + percentile + "-th percentile</li>")
+      })
+      operators.forEach(function(operator) {
+        $("ul#operators").append("<li><input type=\"checkbox\" id=\"operator-"+operator+"\" onclick=\"updateChart()\" />" + operator + "</li>")
+      })
+      jobs.forEach(function(job) {
+        j = job.replace(/\./, "-")
+        $("ul#jobs").append("<li><input type=\"checkbox\" id=\"job-"+j+"\" onclick=\"updateChart()\" />" + job + "</li>")
+      })
+    }
+
+    function updateChart() {
+      // TODO(jchaloup): cache the data for later use
+      // at least on checkedbox checked?
+      var requested = new Map()
+      for ( var i = 0; i < operators.length; i++ ) {
+        let operator = operators[i]
+        if ($("input#operator-" + operator).is(":checked")) {
+          console.log("operator", operator)
+          for ( var j = 0; j < percentiles.length; j++ ) {
+            let percentile = percentiles[j]
+            if ($("input#percentile" + percentile).is(":checked")) {
+              console.log("percentile", percentile)
+              for ( var k = 0; k < jobs.length; k++ ) {
+                let job = jobs[k]
+                if ($("input#job-" + job.replace(/\./, "-")).is(":checked")) {
+                  console.log("job", job)
+                  let key = job + ":" + operator + ":" + percentile
+                  console.log("key", key)
+                  // console.log("percentiles.length", percentiles.length)
+                  requested.set( key, "" )
+                }
+              }
+            }
+          }
+        }
+      }
+      console.log("requested", requested)
+
+      for ( var i = 0; i < operators.length; i++ ) {
+        let operator = operators[i]
+        for ( var j = 0; j < percentiles.length; j++ ) {
+          let percentile = percentiles[j]
+          jobsLabel:
+          for ( var k = 0; k < jobs.length; k++ ) {
+            let job = jobs[k]
+            let key = job + ":" + operator + ":" + percentile
+            let label = percentile + "-th percentile (" + operator + ", " + job + ")"
+            if (requested.has(key)) {
+              // already exists in the dataset?
+              for (var idx = 0; idx < data.datasets.length; idx++) {
+                if (data.datasets[idx].label === label) {
+                  continue jobsLabel
+                }
+              }
+              console.log("url", getDataUrl(job, operator, percentile))
+              if (dataCache.has(key)) {
+                const newDataset = {
+                  label: label,
+                  backgroundColor: "rgb("+random(0,255)+","+random(0,255)+","+random(0,255)+")",
+                  "fill":false,
+                  data: dataCache.get(key),
+                };
+                data.datasets.push(newDataset)
+                myChart.update()
+              } else {
+                $.getJSON(getDataUrl(job, operator, percentile), function(jsondata) {
+                  dataCache.set(key, jsondata)
+                  const newDataset = {
+                    label: label,
+                    backgroundColor: "rgb("+random(0,255)+","+random(0,255)+","+random(0,255)+")",
+                    "fill":false,
+                    data: jsondata,
+                  };
+                  data.datasets.push(newDataset)
+                  myChart.update()
+                })
+              }
+            } else {
+              for (var idx = 0; idx < data.datasets.length; idx++) {
+                if (data.datasets[idx].label === label) {
+                  data.datasets.splice(idx, 1);
+                  myChart.update()
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style type="text/css">
+    .chart-container {
+    width: 1300px;
+    height: 800px;
+    background-color: khaki;
+}
+  </style>
+</head>
+<body onload="loadChart(); drawCheckBoxes();">
+
+  <div style="border: 0px solid black;">
+    <center>
+      <h1>Openshift 4.10 watch requests report</h1>
+    </center>
+    <div class="chart-container" style="border: 0px solid red; float: left; margin-right: 35px">
+      <canvas id="myChart" width="200" height="200"></canvas>
+    </div>
+
+    <div style="border: 0px solid orange;">
+      <h3>Percentiles</h3>
+      <p style="margin: 0px 20px;">
+        <ul id="percentiles"></ul>
+      </p>
+
+      <h3>Operators</h3>
+      <ul id="operators"></ul>
+
+      <h3>Jobs</h3>
+      <ul id="jobs"></ul>
+    </div>
+  </div>
+
+</body>
+</html>
