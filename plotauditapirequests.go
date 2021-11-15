@@ -69,6 +69,105 @@ func releaseGraph(operator, suffix, title string, graphs []string) string {
 	) + strings.Join(graphs, ", \\\n") + "\n"
 }
 
+const ChartJSCode = `var myChart = new Chart("%v", {
+	type: "line",
+	data: {
+		datasets: %v,
+	},
+	options: {
+		scales: {
+			xAxes: [{
+				type:'time',
+				distribution:'series',
+				time:{format:'YYYYMMDDHHmmss',unit:'day'},
+				scaleLabel:{display:true,labelString:'Date'}
+			}],
+			yAxes: [{
+				scaleLabel: {display: true, labelString: 'watch API requests'}
+			}]
+		},
+		responsive:true,
+		maintainAspectRatio:false,
+		legend:{position:'right'},
+		title:{display:true,text:'%v'},
+	},
+});`
+
+const chartJSJobHTML = `<html>
+<head>
+  <title>4.10 report</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.4.0/Chart.bundle.js"></script>
+  <style type="text/css">
+    .chart-container {
+	    width: 1300px;
+	    height: 800px;
+			background-color: khaki;
+			margin: 20px 0px;
+		}
+  </style>
+</head>
+<body>
+	<center>
+  %v
+	</center>
+
+  <script>
+
+	%v
+
+	</script>
+</body>
+</html>
+`
+
+func renderChartJSHtmlFile(datasets []dataSet, operator, htmlfile string) error {
+	bytes, err := json.Marshal(datasets)
+	if err != nil {
+		return fmt.Errorf("unable to marshall datasets for %v: %v", operator, err)
+	}
+
+	f, err := os.Create(htmlfile)
+	if err != nil {
+		return fmt.Errorf("unable to create %v: %v", htmlfile, err)
+	}
+	defer f.Close()
+
+	chartCode := fmt.Sprintf(ChartJSCode, operator, string(bytes), operator)
+	canvas := fmt.Sprintf("<div class=\"chart-container\"><canvas id=\"%v\" width=\"200\" height=\"200\"></canvas></div>", operator)
+
+	f.WriteString(fmt.Sprintf(chartJSJobHTML+"\n", canvas, chartCode))
+	return nil
+}
+
+func renderMultipleChartJSHtmlFile(datasets map[string][]dataSet, htmlfile string) error {
+	operators := []string{}
+	for operator := range datasets {
+		operators = append(operators, operator)
+	}
+	sort.Strings(operators)
+	canvases := []string{}
+	chartcodes := []string{}
+	for _, operator := range operators {
+		canvases = append(canvases, fmt.Sprintf("<div class=\"chart-container\"><canvas id=\"%v\" width=\"200\" height=\"200\"></canvas></div>", operator))
+		bytes, err := json.Marshal(datasets[operator])
+		if err != nil {
+			return fmt.Errorf("unable to marshall datasets for %v: %v", operator, err)
+		}
+
+		chartcodes = append(chartcodes, fmt.Sprintf(ChartJSCode, operator, string(bytes), operator))
+	}
+
+	f, err := os.Create(htmlfile)
+	if err != nil {
+		return fmt.Errorf("unable to create %v: %v", htmlfile, err)
+	}
+	defer f.Close()
+
+	f.WriteString(fmt.Sprintf(chartJSJobHTML+"\n", strings.Join(canvases, "\n"), strings.Join(chartcodes, "\n")))
+
+	return nil
+}
+
 type filter func(string) bool
 
 func listJobsForRelease(dir string, fnc filter) ([]string, error) {
@@ -227,11 +326,90 @@ func timeData2datFile(data map[time.Time]int, targetFile string) error {
 	fmt.Printf("file: %v\n", targetFile)
 	for _, k := range tsKeys {
 		// layout := "2006-01-02T15:04:05.000000Z"
-		// fmt.Printf("%v: %v\n", k.Format("20060102150445"), data[k])
-		f.WriteString(fmt.Sprintf("%v %v\n", k.Format("20060102150445.00000"), data[k]))
+		// fmt.Printf("%d%02d%02d%02d%02d%02d %v\n", k.Year(), k.Month(), k.Day(), k.Hour(), k.Minute(), k.Second(), data[k])
+		f.WriteString(fmt.Sprintf("%d%02d%02d%02d%02d%02d %v\n", k.Year(), k.Month(), k.Day(), k.Hour(), k.Minute(), k.Second(), data[k]))
 		// break
 	}
 	return nil
+}
+
+type dataItem struct {
+	X string `json:"x"`
+	Y int    `json:"y"`
+}
+
+func timeData2JSONFile(data map[time.Time]int, targetFile string) error {
+	tsKeys := []time.Time{}
+	for key := range data {
+		tsKeys = append(tsKeys, key)
+	}
+	sort.Slice(tsKeys, func(i, j int) bool {
+		return tsKeys[i].Before(tsKeys[j])
+	})
+
+	f, err := os.Create(targetFile)
+	if err != nil {
+		return fmt.Errorf("unable to create %v: %v", targetFile, err)
+	}
+	defer f.Close()
+
+	fmt.Printf("file: %v\n", targetFile)
+	dataItems := []dataItem{}
+	for _, k := range tsKeys {
+		dataItems = append(dataItems, dataItem{
+			X: fmt.Sprintf("%d%02d%02d%02d%02d%02d", k.Year(), k.Month(), k.Day(), k.Hour(), k.Minute(), k.Second()),
+			Y: data[k],
+		})
+	}
+
+	bytes, err := json.Marshal(dataItems)
+	if err != nil {
+		return fmt.Errorf("unable to marshall data: %v", err)
+	}
+
+	f.WriteString(string(bytes))
+	return nil
+}
+
+type dataSet struct {
+	Label       string     `json:"label"`
+	Fill        bool       `json:"fill"`
+	Data        []dataItem `json:"data"`
+	BorderColor string     `json:"borderColor"`
+}
+
+var colors = []string{
+	"rgb(255,140,0)",
+	"rgb(154,205,50)",
+	"rgb(0,191,255)",
+	"rgb(0,0,128)",
+	"rgb(186,85,211)",
+	"rgb(139,69,19)",
+	"rgb(0,100,0)",
+}
+
+func timeData2ChartJSDataset(data map[time.Time]int, title string) dataSet {
+	tsKeys := []time.Time{}
+	for key := range data {
+		tsKeys = append(tsKeys, key)
+	}
+	sort.Slice(tsKeys, func(i, j int) bool {
+		return tsKeys[i].Before(tsKeys[j])
+	})
+
+	items := []dataItem{}
+	for _, k := range tsKeys {
+		items = append(items, dataItem{
+			X: fmt.Sprintf("%d%02d%02d%02d%02d%02d", k.Year(), k.Month(), k.Day(), k.Hour(), k.Minute(), k.Second()),
+			Y: data[k],
+		})
+	}
+
+	return dataSet{
+		Label:       title,
+		Data:        items,
+		BorderColor: "rgb(255, 99, 132)",
+	}
 }
 
 func plotApiRequestsCount(dir string) error {
@@ -515,6 +693,7 @@ func plotKAAuditRequests(dir string) error {
 	}
 
 	percentiles := []float64{50, 60, 70, 80, 90, 95, 99}
+	datasets := make(map[string][]dataSet)
 	for operator, data := range bucketsMax60MinuteSequence {
 		timeData2datFile(data, filepath.Join(dir, fmt.Sprintf("kaaudit-%v-max-60minute-sequence.dat", operator)))
 
@@ -528,6 +707,9 @@ func plotKAAuditRequests(dir string) error {
 			return tsKeys[i].Before(tsKeys[j])
 		})
 
+		datasets[operator] = []dataSet{}
+		colorIdx := 0
+		colorLen := len(colors)
 		for _, percentile := range percentiles {
 			percentileGrowing := map[time.Time]int{}
 			samples := []float64{}
@@ -541,8 +723,21 @@ func plotKAAuditRequests(dir string) error {
 				percentileGrowing[tsKeys[i]] = int(math.Ceil(p))
 			}
 			timeData2datFile(percentileGrowing, filepath.Join(dir, fmt.Sprintf("kaaudit-%v-max-60minute-sequence-%v-percentile-growing.dat", operator, percentile)))
+			timeData2JSONFile(percentileGrowing, filepath.Join(dir, fmt.Sprintf("kaaudit-%v-max-60minute-sequence-%v-percentile-growing.json", operator, percentile)))
+			// build dataset for chartjs
+			dataset := timeData2ChartJSDataset(percentileGrowing, fmt.Sprintf("%v-th percentile", percentile))
+			dataset.BorderColor = colors[colorIdx]
+			datasets[operator] = append(datasets[operator], dataset)
+			colorIdx = (colorIdx + 1) % colorLen
+		}
+		err := renderChartJSHtmlFile(datasets[operator], operator, filepath.Join(dir, fmt.Sprintf("kaaudit-%v.html", operator)))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("unable to render chart JS html page for %v: %v", operator, err))
+			continue
 		}
 	}
+
+	renderMultipleChartJSHtmlFile(datasets, filepath.Join(dir, "kaaudit-all.html"))
 
 	for operator := range bucketsMax60MinuteSequence {
 		if err := func() error {
