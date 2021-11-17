@@ -8,12 +8,19 @@
 - Large disk space (artifacts from 4.10 consumes ~100GB)
   - by default the shell script sets the target dir to /run/media/jchaloup/5F9051C63D2DB782/Data (needs to be changed by hand)
 
+## How to build it
+
+```sh
+$ go build -o miner miner.go
+$ go build -o plotauditapirequests plotauditapirequests.go
+```
+
 ## How to run it
 
 To extract operator audits from audit-logs.tar and apirequestscount from must-gather.tar in all 4.10 informing jobs:
 
 ```sh
-$ ./collect-audits-from-jobs.sh redhat-openshift-ocp-release-4.10-informing 4.10
+$ ./miner -v=1 --kubeconfig=... --with-must-gather --release="4.10" --category="redhat-openshift-ocp-release-4.10-informing"
 ```
 
 To extract operator audits from audit-logs.tar and apirequestscount from must-gather.tar for a particular job:
