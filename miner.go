@@ -262,11 +262,8 @@ export SCRIPT_DIR=/tmp
 {{ .TargetScript }} /tmp/Data {{ .JobRelease }} {{ .JobName }} {{ .JobID }} "0"
 ls -l /tmp/Data/{{ .JobRelease }}/{{ .JobName }}/{{ .JobID }}/{{ .TargetFile }}
 cp /tmp/Data/{{ .JobRelease }}/{{ .JobName }}/{{ .JobID }}/{{ .TargetFile }} .
-ls -l {{ .TargetFile }}
-cat {{ .TargetFile }}
+# TODO(jchaloup): if {{ .TargetFile }} empty => create a text saying "Empty"
 tar -C /tmp/Data/{{ .JobRelease }}/{{ .JobName }}/{{ .JobID }}/ -czf /tmp/data.tar.gz {{ .TargetFile }}
-ls -l /tmp/data.tar.gz
-cat /tmp/data.tar.gz | tar -zxf - -O
 oc create -f - << EOF
 kind: ConfigMap
 apiVersion: v1
