@@ -116,6 +116,24 @@ by a miner.
 Once a new miner is created, the `miner.go` needs to be updated to take it into account.
 This part is still under development and requires to extend the `miners` global variable.
 
+To test a miner simply run it as a shell script with the above five arguments from your CLI.
+The `gsutil` command is expected to be properly installed and configured.
+The index argument can be an arbitrary integer. It is only used to signify a job index in the container logs.
+E.g.:
+
+```sh
+$ . lib.sh
+$ processOpenshifte2eTest /tmp 4.11 periodic-ci-openshift-release-master-ci-4.11-upgrade-from-stable-4.10-e2e-aws-ovn-upgrade 1492478714259181568 1
+Pulling openshift-e2e-test/build-log.txt (1, Sun 27 Feb 2022 09:32:14 PM CET)
+Copying gs://origin-ci-test/logs/periodic-ci-openshift-release-master-ci-4.11-upgrade-from-stable-4.10-e2e-aws-ovn-upgrade/1492478714259181568/artifacts/e2e-aws-ovn-upgrade/openshift-e2e-test/build-log.txt...
+/ [1 files][  2.8 KiB/  2.8 KiB]
+Operation completed over 1 objects/2.8 KiB.
+Copying gs://origin-ci-test/logs/periodic-ci-openshift-release-master-ci-4.11-upgrade-from-stable-4.10-e2e-aws-ovn-upgrade/1492478714259181568/artifacts/e2e-aws-ovn-upgrade/openshift-e2e-test/finished.json...
+/ [1 files][   78.0 B/   78.0 B]
+Operation completed over 1 objects/78.0 B.
+Elapsed time: 0 days 00 hr 00 min 05 sec
+```
+
 ## Future work
 
 - extract more data from the artifacts (e.g. number of containers created/deleted by all kubelets)
